@@ -1,0 +1,16 @@
+name: "Sample"
+
+on:
+  workflow_dispatch:
+    inputs: {}
+
+jobs:
+  pr:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: checkout
+        name: Checkout repository
+        run: echo "test"
