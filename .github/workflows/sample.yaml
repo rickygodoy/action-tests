@@ -32,7 +32,6 @@ jobs:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           CONFIG_FILE=".github/configs/modules.json"
-          TEMP_MATRIX="matrix_temp.json"
 
           # Ensure config file exists
           if [ ! -f "$CONFIG_FILE" ]; then
@@ -40,32 +39,17 @@ jobs:
             exit 1
           fi
 
-          # Use env var to avoid injection issues
-          CHANGED_DIRS="$CHANGED_FILES"
-          echo "Raw changed files: $CHANGED_DIRS"
-
-          # Fix for potential escaped JSON format ([\"path\"]) -> (["path"])
-          # This handles cases where the action outputs escaped JSON strings
-          if ! echo "$CHANGED_DIRS" | jq empty >/dev/null 2>&1; then
-             echo "JSON parse error detected. Attempting to fix escaped quotes..."
-             CHANGED_DIRS=$(echo "$CHANGED_DIRS" | sed 's/\\\"/\"/g')
-             echo "Fixed changed files: $CHANGED_DIRS"
-          fi
-
-          # Initialize output file
-          rm -f "$TEMP_MATRIX"
-          touch "$TEMP_MATRIX"
-
-          # Handle empty changes gracefully
-          if [ -z "$CHANGED_DIRS" ] || [ "$CHANGED_DIRS" == "[]" ]; then
+          if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" == "[]" ]; then
             echo "matrix=[]" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Processing changes: $CHANGED_DIRS"
+          echo "Processing changes: $CHANGED_FILES"
 
           # Get all environment keys (e.g. prod, dev) dynamically from config
           ENVS=$(jq -r 'keys[]' "$CONFIG_FILE")
+
+          MATRIX_ITEMS=""
 
           # Iterate through each environment
           for ENV in $ENVS; do
@@ -79,26 +63,25 @@ jobs:
               [ -z "$MOD_PATH" ] && continue
               
               # Check match: does any changed file start with the module path?
-              MATCH=$(echo "$CHANGED_DIRS" | jq --arg mod "$MOD_PATH" 'any(.[]; . == $mod or startswith($mod + "/"))')
+              MATCH=$(echo "$CHANGED_FILES" | jq --arg mod "$MOD_PATH" 'any(.[]; . == $mod or startswith($mod + "/"))')
               
               if [ "$MATCH" == "true" ]; then
                 echo "  -> Match found: $MOD_PATH"
-                # Append JSON object to temporary file
-                jq -n --arg p "$MOD_PATH" --arg e "$ENV" '{path: $p, env: $e}' >> "$TEMP_MATRIX"
+                ITEM=$(jq -n -c --arg p "$MOD_PATH" --arg e "$ENV" '{path: $p, env: $e}')
+                MATRIX_ITEMS="${MATRIX_ITEMS}${ITEM}"$'\n'
               fi
             done <<< "$MODULES"
           done
 
           # Consolidate results into a single JSON array
-          if [ -s "$TEMP_MATRIX" ]; then
-            FINAL_MATRIX=$(jq -s -c '.' "$TEMP_MATRIX")
+          if [ -n "$MATRIX_ITEMS" ]; then
+            FINAL_MATRIX=$(echo "$MATRIX_ITEMS" | jq -s -c '.')
           else
             FINAL_MATRIX="[]"
           fi
 
           echo "Final Matrix: $FINAL_MATRIX"
           echo "matrix=${FINAL_MATRIX}" >> $GITHUB_OUTPUT
-          rm -f "$TEMP_MATRIX"
 
   terraform:
     needs: applies
