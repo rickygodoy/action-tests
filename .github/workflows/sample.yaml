@@ -1,16 +1,35 @@
 name: "Sample"
 
-on:
-  workflow_dispatch:
-    inputs: {}
+on: [push, workflow_dispatch]
 
 jobs:
-  pr:
+  applies:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    outputs:
+      # Export the JSON array of changed folders to the next job
+      matrix: ${{ steps.set-matrix.outputs.all_changed_files }}
 
     steps:
-      - id: checkout
-        name: Checkout repository
-        run: echo "test"
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to detect changes accurately
+
+      - name: Get changed Terraform modules
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          dir_names: true # Output folder names instead of file names
+          json: true # Format as a JSON array for the matrix
+
+      - name: Set Matrix Output
+        id: set-matrix
+        # If no files changed, output an empty array to prevent failure
+        run: |
+          if [ "${{ steps.changed-files.outputs.any_changed }}" == "true" ]; then
+            echo "all_changed_files=${{ steps.changed-files.outputs.all_changed_files }}" >> $GITHUB_OUTPUT
+          else
+            echo "all_changed_files=[]" >> $GITHUB_OUTPUT
+          fi
