@@ -21,12 +21,15 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@v44
         with:
-          dir_names: true # Output folder names instead of file names
-          json: true # Format as a JSON array
+          dir_names: true
+          json: true
+          escape_json: false
 
       - name: Set Matrix Output
         id: set-matrix
         shell: bash
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           CONFIG_FILE=".github/configs/modules.json"
           TEMP_MATRIX="matrix_temp.json"
@@ -37,9 +40,18 @@ jobs:
             exit 1
           fi
 
-          # Get the JSON array of changed directories
-          CHANGED_DIRS='${{ steps.changed-files.outputs.all_changed_files }}'
-          
+          # Use env var to avoid injection issues
+          CHANGED_DIRS="$CHANGED_FILES"
+          echo "Raw changed files: $CHANGED_DIRS"
+
+          # Fix for potential escaped JSON format ([\"path\"]) -> (["path"])
+          # This handles cases where the action outputs escaped JSON strings
+          if ! echo "$CHANGED_DIRS" | jq empty >/dev/null 2>&1; then
+             echo "JSON parse error detected. Attempting to fix escaped quotes..."
+             CHANGED_DIRS=$(echo "$CHANGED_DIRS" | sed 's/\\\"/\"/g')
+             echo "Fixed changed files: $CHANGED_DIRS"
+          fi
+
           # Initialize output file
           rm -f "$TEMP_MATRIX"
           touch "$TEMP_MATRIX"
@@ -49,7 +61,7 @@ jobs:
             echo "matrix=[]" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           echo "Processing changes: $CHANGED_DIRS"
 
           # Get all environment keys (e.g. prod, dev) dynamically from config
@@ -83,7 +95,7 @@ jobs:
           else
             FINAL_MATRIX="[]"
           fi
-          
+
           echo "Final Matrix: $FINAL_MATRIX"
           echo "matrix=${FINAL_MATRIX}" >> $GITHUB_OUTPUT
           rm -f "$TEMP_MATRIX"
