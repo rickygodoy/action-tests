@@ -1,0 +1,74 @@
+name: "Sample"
+
+on: [push, workflow_dispatch]
+
+jobs:
+  applies:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      # Export the JSON array of changed folders to the next job
+      matrix: ${{ steps.set-matrix.outputs.all_changed_files }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to detect changes accurately
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          dir_names: true # Output folder names instead of file names
+          json: true # Format as a JSON array
+
+      - name: Set Matrix Output
+        id: set-matrix
+        shell: bash
+        run: |
+          # Get the JSON array of changed directories
+          changed_dirs='${{ steps.changed-files.outputs.all_changed_files }}'
+          
+          # Handle empty changes
+          if [ -z "$changed_dirs" ] || [ "$changed_dirs" == "[]" ]; then
+            echo "all_changed_files=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract directories from JSON (jq -r unquotes strings)
+          dirs=$(echo "$changed_dirs" | jq -r '.[]')
+
+          modules=()
+          
+          # Read directories line by line
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            
+            search_dir="$dir"
+            while true; do
+              # Check for Terraform files (*.tf) in the current directory
+              if ls "$search_dir"/*.tf >/dev/null 2>&1; then
+                modules+=("$search_dir")
+                break
+              fi
+
+              # Stop if we hit the root
+              if [[ "$search_dir" == "." || "$search_dir" == "/" ]]; then
+                break
+              fi
+
+              # Go up one level
+              search_dir=$(dirname "$search_dir")
+            done
+          done <<< "$dirs"
+
+          # Deduplicate and output JSON
+          if [ ${#modules[@]} -eq 0 ]; then
+            echo "all_changed_files=[]" >> $GITHUB_OUTPUT
+          else
+            # Create a JSON array of unique module paths using jq
+            json_output=$(printf '%s\n' "${modules[@]}" | sort -u | jq -R . | jq -s -c .)
+            echo "all_changed_files=${json_output}" >> $GITHUB_OUTPUT
+          fi

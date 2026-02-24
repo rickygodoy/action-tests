@@ -1,0 +1,10 @@
+{
+  "prod": [
+    "org",
+    "network/prd"
+  ],
+  "dev": [
+    "network/dev",
+    "app/stg"
+  ]
+}
